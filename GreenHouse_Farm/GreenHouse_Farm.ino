@@ -33,33 +33,27 @@ void loop() {
   int soilMoistureValue = analogRead(SOIL_MOISTURE_PIN);
   int soilMoisturePercent = map(soilMoistureValue, 0, 4095, 100, 0);
 
-  // Control the water pump based on soil moisture percentage
-  if (soilMoisturePercent < 30) {        // Adjust threshold as needed
-    digitalWrite(RELAY_PUMP_PIN, HIGH);  // Turn on the water pump
-    Serial.println("Water pump turned ON");
-    delay(100);  // Short delay to stabilize the system
-  } else {
-    digitalWrite(RELAY_PUMP_PIN, LOW);  // Turn off the water pump
-    Serial.println("Water pump turned OFF");
-    delay(100);  // Short delay to stabilize the system
-  }
-
   // Read temperature and humidity data from the DHT11 sensor
   float temperatureC = dht.readTemperature();
   float temperatureF = dht.readTemperature(true);
   float humidity = dht.readHumidity();
 
-  // Retry reading the DHT sensor if the first read fails
-  if (isnan(temperatureC) || isnan(humidity) || isnan(temperatureF)) {
-    delay(1000);  // Wait before trying again
-    temperatureC = dht.readTemperature();
-    temperatureF = dht.readTemperature(true);
-    humidity = dht.readHumidity();
+  // Control the water pump based on soil moisture percentage
+  if (soilMoisturePercent < 30) {        // Adjust threshold as needed
+    digitalWrite(RELAY_PUMP_PIN, HIGH);  // Turn on the water pump
+    Serial.println("Water pump turned ON");
+  } else {
+    digitalWrite(RELAY_PUMP_PIN, LOW);  // Turn off the water pump
+    Serial.println("Water pump turned OFF");
   }
+
+  // Add a small delay before the next reading
+  delay(1000);
 
   // Check if any reads failed and exit early (to try again).
   if (isnan(temperatureC) || isnan(humidity) || isnan(temperatureF)) {
     Serial.println("Failed to read from DHT sensor!");
+    delay(2000);  // Wait before trying again
     return;
   }
 
@@ -85,6 +79,6 @@ void loop() {
     Serial.println("Fan turned OFF");
   }
 
-  // Add a small delay before the next reading
-  delay(1000);
+  // Add a small delay before controlling the pump to allow the system to stabilize
+  delay(100);
 }

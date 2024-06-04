@@ -1,9 +1,13 @@
 #include <DHT.h>
 #include <NewPing.h>
+#include <WiFi.h>
+#include <ThingSpeak.h>
 
 // Pin Definitions
 #define SOIL_MOISTURE_PIN 32  // Soil moisture sensor output
-#define DHTPIN 17             // Digital pin connected to the DHT sensor
+#define DHTPIN 17
+
+             // Digital pin connected to the DHT sensor
 #define DHTTYPE DHT11         // DHT 11
 #define RELAY_FAN_PIN 27      // Pin connected to the relay module controlling the fan
 #define RELAY_PUMP_PIN 16     // Pin connected to the relay module controlling the pump
@@ -17,10 +21,52 @@ NewPing sonar(TRIG_PIN, ECHO_PIN, MAX_DISTANCE);
 unsigned long previousMillis = 0;
 const long interval = 1000;  // Interval at which to read sensors (milliseconds)
 
+// WiFi credentials
+const char* ssid = "AaronB";
+const char* password = "yngezy1213";
+
+// ThingSpeak channel information
+unsigned long myChannelNumber = 2562505;
+const char* myWriteAPIKey = "QTPT88ASWOOPS4B9";
+
+// Create a WiFi client
+WiFiClient client;
+
 // Variables to store sensor readings
 int soilMoisturePercent = 0;
 float waterLevel = 0;
 float temperatureC = 0, temperatureF = 0, humidity = 0;
+
+// Function to connect to WiFi
+void connectToWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("WiFi already connected.");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+    return;  // Exit function if already connected
+  }
+  
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting to WiFi");
+
+  int attempts = 0;
+  const int maxAttempts = 50; // Increase maximum attempts
+
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println(" connected");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println(" failed to connect to WiFi");
+    Serial.println("Check WiFi credentials and router configuration.");
+  }
+}
 
 // Function to read soil moisture
 int readSoilMoisture() {
@@ -80,13 +126,12 @@ float readWaterLevel() {
     return waterLevelPercentage;
   } else {
     Serial.println("No valid readings obtained!");
-    return -1; // Return -1 to indicate an error
+    return -1;  // Return -1 to indicate an error
   }
 }
 
-
 // Function to read DHT sensor
-bool readDHT(float &temperatureC, float &temperatureF, float &humidity) {
+bool readDHT(float& temperatureC, float& temperatureF, float& humidity) {
   for (int i = 0; i < 5; i++) {  // Try up to 5 times
     temperatureC = dht.readTemperature();
     temperatureF = dht.readTemperature(true);
@@ -130,10 +175,22 @@ void setup() {
   // Initialize DHT sensor
   dht.begin();
 
+  // Connect to WiFi
+  connectToWiFi();
+
+  // Initialize ThingSpeak
+  ThingSpeak.begin(client);
+
   Serial.println("Setup completed");
 }
 
 void loop() {
+  // Check WiFi connection status and reconnect if disconnected
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi disconnected! Attempting to reconnect...");
+    connectToWiFi();
+  }
+
   unsigned long currentMillis = millis();
 
   if (currentMillis - previousMillis >= interval) {
@@ -168,5 +225,34 @@ void loop() {
       // Control the fan based on temperature or humidity
       controlFan(temperatureC, humidity);
     }
+
+    // Set ThingSpeak fields with sensor data
+    ThingSpeak.setField(1, temperatureC);
+    ThingSpeak.setField(2, humidity);
+    ThingSpeak.setField(3, soilMoisturePercent);
+    ThingSpeak.setField(4, waterLevel);
+
+    // Write the fields to the ThingSpeak channel
+    int x = -301;  // Initial value to trigger retry
+    int retryCount = 0;
+    while (x == -301 && retryCount < 5) {  // Retry up to 5 times
+      x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+      if (x == 200) {
+        Serial.println("Channel update successful.");
+      } else {
+        Serial.print("Problem updating channel. HTTP error code: ");
+        Serial.println(x);
+        Serial.println("Retrying...");
+        retryCount++;
+        delay(5000);  // Wait before retrying (5 seconds)
+      }
+    }
+
+    if (x == -301) {
+      Serial.println("Failed to update channel after multiple retries. Check ThingSpeak status.");
+      delay(2000); 
+    }
+
+    delay(20000); // Delay to avoid flooding ThingSpeak with updates
   }
 }

@@ -1,13 +1,11 @@
 #include <DHT.h>
 #include <NewPing.h>
 #include <WiFi.h>
-#include <ThingSpeak.h>
+#include <FirebaseESP32.h>
 
 // Pin Definitions
 #define SOIL_MOISTURE_PIN 32  // Soil moisture sensor output
-#define DHTPIN 17
-
-             // Digital pin connected to the DHT sensor
+#define DHTPIN 17             // Digital pin connected to the DHT sensor
 #define DHTTYPE DHT11         // DHT 11
 #define RELAY_FAN_PIN 27      // Pin connected to the relay module controlling the fan
 #define RELAY_PUMP_PIN 16     // Pin connected to the relay module controlling the pump
@@ -25,12 +23,13 @@ const long interval = 1000;  // Interval at which to read sensors (milliseconds)
 const char* ssid = "AaronB";
 const char* password = "yngezy1213";
 
-// ThingSpeak channel information
-unsigned long myChannelNumber = 2562505;
-const char* myWriteAPIKey = "QTPT88ASWOOPS4B9";
+// Firebase credentials
+#define FIREBASE_HOST "https://greenhouse-farm-iot-default-rtdb.firebaseio.com/"  // Replace with your Firebase project URL
+#define FIREBASE_AUTH "AN5BkWtIGPVIzSp5PpcSMsVXXaKhNLrQ7AbxldND"            // Replace with your Firebase database secret
 
-// Create a WiFi client
-WiFiClient client;
+FirebaseData firebaseData;
+FirebaseAuth auth;
+FirebaseConfig config;
 
 // Variables to store sensor readings
 int soilMoisturePercent = 0;
@@ -39,33 +38,17 @@ float temperatureC = 0, temperatureF = 0, humidity = 0;
 
 // Function to connect to WiFi
 void connectToWiFi() {
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("WiFi already connected.");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-    return;  // Exit function if already connected
-  }
-  
   WiFi.begin(ssid, password);
   Serial.println("Connecting to WiFi");
 
-  int attempts = 0;
-  const int maxAttempts = 50; // Increase maximum attempts
-
-  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-    attempts++;
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println(" connected");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println(" failed to connect to WiFi");
-    Serial.println("Check WiFi credentials and router configuration.");
-  }
+  Serial.println(" connected");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
 }
 
 // Function to read soil moisture
@@ -178,8 +161,13 @@ void setup() {
   // Connect to WiFi
   connectToWiFi();
 
-  // Initialize ThingSpeak
-  ThingSpeak.begin(client);
+  // Set Firebase configurations
+  config.host = FIREBASE_HOST;
+  config.signer.tokens.legacy_token = FIREBASE_AUTH;
+
+  // Initialize Firebase
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
 
   Serial.println("Setup completed");
 }
@@ -226,33 +214,23 @@ void loop() {
       controlFan(temperatureC, humidity);
     }
 
-    // Set ThingSpeak fields with sensor data
-    ThingSpeak.setField(1, temperatureC);
-    ThingSpeak.setField(2, humidity);
-    ThingSpeak.setField(3, soilMoisturePercent);
-    ThingSpeak.setField(4, waterLevel);
+    // Prepare data to send to Firebase
+    Firebase.setFloat(firebaseData, "/sensorData/temperatureC", temperatureC);
+    Firebase.setFloat(firebaseData, "/sensorData/humidity", humidity);
+    Firebase.setInt(firebaseData, "/sensorData/soilMoisture", soilMoisturePercent);
+    Firebase.setFloat(firebaseData, "/sensorData/waterLevel", waterLevel);
 
-    // Write the fields to the ThingSpeak channel
-    int x = -301;  // Initial value to trigger retry
-    int retryCount = 0;
-    while (x == -301 && retryCount < 5) {  // Retry up to 5 times
-      x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
-      if (x == 200) {
-        Serial.println("Channel update successful.");
-      } else {
-        Serial.print("Problem updating channel. HTTP error code: ");
-        Serial.println(x);
-        Serial.println("Retrying...");
-        retryCount++;
-        delay(5000);  // Wait before retrying (5 seconds)
-      }
+    // Check for successful data update
+    if (Firebase.pushFloat(firebaseData, "/sensorData/temperatureC", temperatureC) &&
+        Firebase.pushFloat(firebaseData, "/sensorData/humidity", humidity) &&
+        Firebase.pushInt(firebaseData, "/sensorData/soilMoisture", soilMoisturePercent) &&
+        Firebase.pushFloat(firebaseData, "/sensorData/waterLevel", waterLevel)) {
+      Serial.println("Data successfully sent to Firebase");
+    } else {
+      Serial.print("Error sending data: ");
+      Serial.println(firebaseData.errorReason());
     }
 
-    if (x == -301) {
-      Serial.println("Failed to update channel after multiple retries. Check ThingSpeak status.");
-      delay(2000); 
-    }
-
-    delay(20000); // Delay to avoid flooding ThingSpeak with updates
+    delay(200); // Delay to avoid flooding Firebase with updates
   }
 }

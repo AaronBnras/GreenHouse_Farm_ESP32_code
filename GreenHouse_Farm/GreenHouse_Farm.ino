@@ -35,6 +35,8 @@ FirebaseConfig config;
 int soilMoisturePercent = 0;
 float waterLevel = 0;
 float temperatureC = 0, temperatureF = 0, humidity = 0;
+bool fanStatus = false;
+bool waterPumpStatus = false;
 
 // Function to connect to WiFi
 void connectToWiFi() {
@@ -66,9 +68,11 @@ void controlWaterPump(int soilMoisturePercent) {
   if (soilMoisturePercent < 30) {        // Adjust threshold as needed
     digitalWrite(RELAY_PUMP_PIN, HIGH);  // Turn on the water pump
     Serial.println("Water pump turned ON");
+    waterPumpStatus = true;
   } else {
     digitalWrite(RELAY_PUMP_PIN, LOW);  // Turn off the water pump
     Serial.println("Water pump turned OFF");
+    waterPumpStatus = false;
   }
 }
 
@@ -133,9 +137,11 @@ void controlFan(float temperatureC, float humidity) {
   if (temperatureC > 32.0 || humidity > 70.0) {  // Adjust the threshold values as needed
     digitalWrite(RELAY_FAN_PIN, HIGH);
     Serial.println("Fan turned ON");
+    fanStatus = true;
   } else {
     digitalWrite(RELAY_FAN_PIN, LOW);
     Serial.println("Fan turned OFF");
+    fanStatus = false;
   }
 }
 
@@ -216,21 +222,27 @@ void loop() {
 
     // Prepare data to send to Firebase
     Firebase.setFloat(firebaseData, "/sensorData/temperatureC", temperatureC);
+    Firebase.setFloat(firebaseData, "/sensorData/temperatureF", temperatureF);
     Firebase.setFloat(firebaseData, "/sensorData/humidity", humidity);
     Firebase.setInt(firebaseData, "/sensorData/soilMoisture", soilMoisturePercent);
     Firebase.setFloat(firebaseData, "/sensorData/waterLevel", waterLevel);
+    Firebase.setBool(firebaseData, "/status/fan", fanStatus);
+    Firebase.setBool(firebaseData, "/status/waterPump", waterPumpStatus);
 
     // Check for successful data update
     if (Firebase.pushFloat(firebaseData, "/sensorData/temperatureC", temperatureC) &&
+        Firebase.pushFloat(firebaseData, "/sensorData/temperatureF", temperatureF) &&
         Firebase.pushFloat(firebaseData, "/sensorData/humidity", humidity) &&
         Firebase.pushInt(firebaseData, "/sensorData/soilMoisture", soilMoisturePercent) &&
-        Firebase.pushFloat(firebaseData, "/sensorData/waterLevel", waterLevel)) {
+        Firebase.pushFloat(firebaseData, "/sensorData/waterLevel", waterLevel) &&
+        Firebase.pushBool(firebaseData, "/status/fan", fanStatus) &&
+        Firebase.pushBool(firebaseData, "/status/waterPump", waterPumpStatus)) {
       Serial.println("Data successfully sent to Firebase");
     } else {
       Serial.print("Error sending data: ");
       Serial.println(firebaseData.errorReason());
     }
 
-    delay(200); // Delay to avoid flooding Firebase with updates
+    delay(2000); // Delay to avoid flooding Firebase with updates
   }
 }
